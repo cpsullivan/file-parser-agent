@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Parser Agent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📄 File Parser Agent</h1>
+            <p>Convert PDF, Word, Excel, and PowerPoint files to JSON or Markdown</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Left Column: Upload -->
+            <div class="column upload-column">
+                <h2>Upload Files</h2>
+                <div class="instructions">
+                    <p><strong>Instructions:</strong></p>
+                    <ul>
+                        <li>Drag & drop files or click to browse</li>
+                        <li>Supported: PDF, DOCX, XLSX, PPTX</li>
+                        <li>Max size: 50MB per file</li>
+                        <li>Choose output format (JSON or Markdown)</li>
+                    </ul>
+                </div>
+
+                <div class="upload-area" id="uploadArea">
+                    <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt" multiple>
+                    <div class="upload-prompt">
+                        <span class="upload-icon">📁</span>
+                        <p>Drag & drop files here</p>
+                        <p class="or-text">or</p>
+                        <button class="browse-btn" onclick="document.getElementById('fileInput').click()">
+                            Browse Files
+                        </button>
+                    </div>
+                </div>
+
+                <div class="format-selector">
+                    <label>
+                        <input type="radio" name="format" value="json" checked>
+                        JSON
+                    </label>
+                    <label>
+                        <input type="radio" name="format" value="markdown">
+                        Markdown
+                    </label>
+                </div>
+
+                <div class="upload-status" id="uploadStatus"></div>
+
+                <div class="file-queue" id="fileQueue"></div>
+            </div>
+
+            <!-- Right Column: Results -->
+            <div class="column results-column">
+                <h2>Parsed Files</h2>
+                <div class="results-list" id="resultsList">
+                    <p class="empty-state">No files parsed yet. Upload a file to get started.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // File upload handling
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const uploadStatus = document.getElementById('uploadStatus');
+        const resultsList = document.getElementById('resultsList');
+        const fileQueue = document.getElementById('fileQueue');
+
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            handleFiles(files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function getSelectedFormat() {
+            return document.querySelector('input[name="format"]:checked').value;
+        }
+
+        function handleFiles(files) {
+            Array.from(files).forEach(file => {
+                uploadFile(file);
+            });
+        }
+
+        function showStatus(message, type = 'info') {
+            uploadStatus.innerHTML = `<div class="status-${type}">${message}</div>`;
+            setTimeout(() => {
+                uploadStatus.innerHTML = '';
+            }, 5000);
+        }
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('format', getSelectedFormat());
+
+            // Add to queue
+            const queueItem = document.createElement('div');
+            queueItem.className = 'queue-item processing';
+            queueItem.innerHTML = `
+                <span class="queue-filename">${file.name}</span>
+                <span class="queue-status">Processing...</span>
+            `;
+            fileQueue.appendChild(queueItem);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    queueItem.className = 'queue-item success';
+                    queueItem.querySelector('.queue-status').textContent = '✓ Complete';
+
+                    setTimeout(() => queueItem.remove(), 2000);
+                    addResultItem(result);
+                    showStatus(`Successfully parsed: ${file.name}`, 'success');
+                } else {
+                    throw new Error(result.error || 'Upload failed');
+                }
+            } catch (error) {
+                queueItem.className = 'queue-item error';
+                queueItem.querySelector('.queue-status').textContent = '✗ Failed';
+                showStatus(`Error: ${error.message}`, 'error');
+
+                setTimeout(() => queueItem.remove(), 5000);
+            }
+        }
+
+        function addResultItem(result) {
+            // Remove empty state
+            const emptyState = resultsList.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            const resultItem = document.createElement('div');
+            resultItem.className = 'result-item';
+
+            const fileTypeIcon = {
+                'pdf': '📕',
+                'word': '📘',
+                'excel': '📗',
+                'powerpoint': '📙'
+            }[result.parsed_data.file_type] || '📄';
+
+            resultItem.innerHTML = `
+                <div class="result-header">
+                    <span class="result-icon">${fileTypeIcon}</span>
+                    <div class="result-info">
+                        <div class="result-filename">${result.original_filename}</div>
+                        <div class="result-meta">
+                            ${result.format.toUpperCase()} •
+                            ${new Date().toLocaleTimeString()}
+                        </div>
+                    </div>
+                </div>
+                <div class="result-preview">
+                    <pre>${JSON.stringify(result.parsed_data, null, 2).substring(0, 300)}...</pre>
+                </div>
+                <div class="result-actions">
+                    <button onclick="viewFile('${result.filename}')" class="btn btn-view">
+                        👁 View
+                    </button>
+                    <button onclick="downloadFile('${result.filename}')" class="btn btn-download">
+                        ⬇ Download
+                    </button>
+                </div>
+            `;
+
+            resultsList.insertBefore(resultItem, resultsList.firstChild);
+        }
+
+        function downloadFile(filename) {
+            window.location.href = `/download/${filename}`;
+        }
+
+        function viewFile(filename) {
+            window.open(`/download/${filename}`, '_blank');
+        }
+
+        // Load existing files on page load
+        async function loadExistingFiles() {
+            try {
+                const response = await fetch('/list-outputs');
+                const data = await response.json();
+
+                if (data.files && data.files.length > 0) {
+                    const emptyState = resultsList.querySelector('.empty-state');
+                    if (emptyState) emptyState.remove();
+
+                    data.files.forEach(file => {
+                        const ext = file.filename.split('.').pop();
+                        const fileTypeIcon = ext === 'json' ? '📊' : '📝';
+
+                        const resultItem = document.createElement('div');
+                        resultItem.className = 'result-item';
+                        resultItem.innerHTML = `
+                            <div class="result-header">
+                                <span class="result-icon">${fileTypeIcon}</span>
+                                <div class="result-info">
+                                    <div class="result-filename">${file.filename}</div>
+                                    <div class="result-meta">
+                                        ${(file.size / 1024).toFixed(1)} KB •
+                                        ${new Date(file.created).toLocaleString()}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="result-actions">
+                                <button onclick="viewFile('${file.filename}')" class="btn btn-view">
+                                    👁 View
+                                </button>
+                                <button onclick="downloadFile('${file.filename}')" class="btn btn-download">
+                                    ⬇ Download
+                                </button>
+                            </div>
+                        `;
+                        resultsList.appendChild(resultItem);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading files:', error);
+            }
+        }
+
+        // Load on page load
+        loadExistingFiles();
+    </script>
+</body>
+</html>
