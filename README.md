@@ -10,13 +10,16 @@ A simple web-based file parser that converts PDF, Word, Excel, and PowerPoint fi
 - **Drag & Drop**: Drag files directly onto the upload area
 - **Real-time Processing**: See parsing results immediately
 - **File History**: View and download previously parsed files
+- **Clear/Delete**: Remove individual files or clear all parsed files ✨ NEW
+- **Enhanced PowerPoint**: Detect images, charts, tables, and embedded objects ✨ NEW
+- **Enhanced Word**: Detect embedded Excel charts and inline images ✨ NEW
 
 ## Supported File Types
 
-- **PDF** (.pdf) - Text extraction with page-by-page content
-- **Word** (.docx, .doc) - Paragraphs, tables, and metadata
-- **Excel** (.xlsx, .xls) - All sheets with data in tabular format
-- **PowerPoint** (.pptx, .ppt) - Slide text, titles, and notes
+- **PDF** (.pdf) - Text extraction with page-by-page content and metadata
+- **Word** (.docx, .doc) - Paragraphs, tables, embedded objects (charts/images), metadata
+- **Excel** (.xlsx, .xls) - All sheets with complete data in tabular format
+- **PowerPoint** (.pptx, .ppt) - Text, titles, notes, images, charts, tables, embedded objects
 
 ## Quick Start
 
@@ -94,6 +97,8 @@ file-parser-agent/
 - `POST /upload` - Upload and parse file
 - `GET /download/<filename>` - Download parsed file
 - `GET /list-outputs` - List all parsed files
+- `DELETE /delete/<filename>` - Delete individual parsed file ✨ NEW
+- `POST /clear-all` - Clear all parsed files ✨ NEW
 
 ## Configuration
 
@@ -115,14 +120,24 @@ file-parser-agent/
 - Large files (>50MB) are rejected
 - Images are not extracted from documents
 
+## Version 2.0 Enhancements ✅
+
+- ✅ Clear/Delete functionality (individual and bulk)
+- ✅ Enhanced PowerPoint parsing (images, charts, tables detection)
+- ✅ Enhanced Word parsing (embedded Excel detection)
+- ✅ Rich metadata extraction for all file types
+
 ## Future Enhancements
 
+- [ ] AI-powered image descriptions (Claude Vision / GPT-4 Vision)
+- [ ] Advanced embedded Excel chart data extraction
 - [ ] Add OCR support for scanned documents
 - [ ] Extract and save images from files
 - [ ] Batch processing of multiple files
 - [ ] Cloud storage integration
-- [ ] Advanced formatting preservation
 - [ ] API authentication
+
+📘 See [ENHANCEMENTS_V2.md](ENHANCEMENTS_V2.md) for detailed documentation.
 
 ## License
 

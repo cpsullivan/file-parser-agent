@@ -9,6 +9,10 @@ import os
 import json
 from datetime import datetime
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import parsers
 from parsers.pdf_parser import parse_pdf
@@ -20,6 +24,7 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['OUTPUT_FOLDER'] = 'outputs'
+app.config['ENABLE_AI_VISION'] = os.environ.get('ENABLE_AI_VISION', 'true').lower() == 'true'
 
 # Ensure directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -72,9 +77,12 @@ def upload_file():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
         file.save(filepath)
 
-        # Parse file
+        # Parse file (with AI vision option for PowerPoint)
         parser = get_parser(filename)
-        parsed_data = parser(filepath)
+        if filename.lower().endswith(('.pptx', '.ppt')):
+            parsed_data = parser(filepath, enable_ai_vision=app.config['ENABLE_AI_VISION'])
+        else:
+            parsed_data = parser(filepath)
 
         # Generate output file
         output_filename = f"{Path(filename).stem}_{timestamp}.{output_format}"
@@ -126,6 +134,35 @@ def list_outputs():
             })
 
     return jsonify({'files': sorted(files, key=lambda x: x['created'], reverse=True)})
+
+@app.route('/delete/<filename>', methods=['DELETE'])
+def delete_file(filename):
+    """Delete a parsed file"""
+    filepath = os.path.join(app.config['OUTPUT_FOLDER'], secure_filename(filename))
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            return jsonify({'success': True, 'message': f'Deleted {filename}'})
+        except Exception as e:
+            return jsonify({'error': f'Error deleting file: {str(e)}'}), 500
+    return jsonify({'error': 'File not found'}), 404
+
+@app.route('/clear-all', methods=['POST'])
+def clear_all():
+    """Clear all parsed files"""
+    try:
+        output_dir = app.config['OUTPUT_FOLDER']
+        deleted_count = 0
+
+        for filename in os.listdir(output_dir):
+            filepath = os.path.join(output_dir, filename)
+            if os.path.isfile(filepath):
+                os.remove(filepath)
+                deleted_count += 1
+
+        return jsonify({'success': True, 'deleted': deleted_count})
+    except Exception as e:
+        return jsonify({'error': f'Error clearing files: {str(e)}'}), 500
 
 def convert_to_markdown(data):
     """Convert parsed data to Markdown format"""
@@ -180,6 +217,18 @@ if __name__ == '__main__':
     print("\nSupported file types:")
     for ext in ALLOWED_EXTENSIONS.keys():
         print(f"  - .{ext}")
-    print("\n" + "="*50 + "\n")
+
+    # Check AI Vision status
+    print("\n" + "-"*50)
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if api_key and app.config['ENABLE_AI_VISION']:
+        print("AI Vision: ENABLED (API key detected)")
+        print("Images in PowerPoint files will be auto-described")
+    else:
+        print("AI Vision: DISABLED")
+        if not api_key:
+            print("Set ANTHROPIC_API_KEY environment variable to enable")
+        print("See AI_VISION_SETUP.md for setup instructions")
+    print("-"*50 + "\n")
 
     app.run(debug=True, port=5000, host='0.0.0.0')

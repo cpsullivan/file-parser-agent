@@ -57,7 +57,12 @@
 
             <!-- Right Column: Results -->
             <div class="column results-column">
-                <h2>Parsed Files</h2>
+                <div class="results-header">
+                    <h2>Parsed Files</h2>
+                    <button onclick="clearAllFiles()" class="btn-clear-all" id="clearAllBtn" style="display:none;">
+                        🗑️ Clear All
+                    </button>
+                </div>
                 <div class="results-list" id="resultsList">
                     <p class="empty-state">No files parsed yet. Upload a file to get started.</p>
                 </div>
@@ -190,6 +195,9 @@
                     <button onclick="downloadFile('${result.filename}')" class="btn btn-download">
                         ⬇ Download
                     </button>
+                    <button onclick="deleteFile('${result.filename}')" class="btn btn-delete">
+                        🗑️ Delete
+                    </button>
                 </div>
             `;
 
@@ -204,6 +212,53 @@
             window.open(`/download/${filename}`, '_blank');
         }
 
+        async function deleteFile(filename) {
+            if (!confirm(`Delete ${filename}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/delete/${filename}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    showStatus(`Deleted: ${filename}`, 'success');
+                    loadExistingFiles(); // Reload the list
+                } else {
+                    throw new Error(result.error || 'Delete failed');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function clearAllFiles() {
+            if (!confirm('Delete all parsed files? This cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/clear-all', {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    showStatus(`Cleared ${result.deleted} file(s)`, 'success');
+                    resultsList.innerHTML = '<p class="empty-state">No files parsed yet. Upload a file to get started.</p>';
+                    document.getElementById('clearAllBtn').style.display = 'none';
+                } else {
+                    throw new Error(result.error || 'Clear failed');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
         // Load existing files on page load
         async function loadExistingFiles() {
             try {
@@ -213,6 +268,9 @@
                 if (data.files && data.files.length > 0) {
                     const emptyState = resultsList.querySelector('.empty-state');
                     if (emptyState) emptyState.remove();
+
+                    // Show clear all button
+                    document.getElementById('clearAllBtn').style.display = 'block';
 
                     data.files.forEach(file => {
                         const ext = file.filename.split('.').pop();
@@ -237,6 +295,9 @@
                                 </button>
                                 <button onclick="downloadFile('${file.filename}')" class="btn btn-download">
                                     ⬇ Download
+                                </button>
+                                <button onclick="deleteFile('${file.filename}')" class="btn btn-delete">
+                                    🗑️ Delete
                                 </button>
                             </div>
                         `;

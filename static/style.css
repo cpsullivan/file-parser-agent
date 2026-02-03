@@ -226,6 +226,28 @@ header p {
 }
 
 /* Results Column */
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.btn-clear-all {
+    background: #f44336;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.btn-clear-all:hover {
+    background: #d32f2f;
+}
+
 .empty-state {
     text-align: center;
     color: #999;
@@ -319,6 +341,15 @@ header p {
 
 .btn-download:hover {
     background: #c8e6c9;
+}
+
+.btn-delete {
+    background: #ffebee;
+    color: #c62828;
+}
+
+.btn-delete:hover {
+    background: #ffcdd2;
 }
 
 /* Responsive */
