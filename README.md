@@ -111,6 +111,8 @@ file-parser-agent/
 ├── claude-agent-config.json  # Claude console agent definition
 ├── claude-instructions.md    # Project instructions for Claude
 ├── claude-tool-schemas.json  # Tool schemas for Claude API
+├── mcp_server.py             # MCP server for Claude Desktop
+├── claude_desktop_config.json # Claude Desktop configuration
 ├── uploads/                  # Temporary file storage
 └── outputs/                  # Parsed file storage
 ```
@@ -162,6 +164,55 @@ summary = agent.tool_summarize_document(parsed, summary_length="detailed")
 
 For full API integration, use `api_wrapper.py` with your application.
 
+## MCP Server (Claude Desktop)
+
+The `mcp_server.py` provides Model Context Protocol integration for Claude Desktop.
+
+### Setup
+
+1. Install the MCP package:
+```bash
+pip install mcp
+```
+
+2. Add to Claude Desktop config (`%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+```json
+{
+  "mcpServers": {
+    "file-parser-agent": {
+      "command": "python",
+      "args": ["C:\\path\\to\\file-parser-agent\\mcp_server.py"],
+      "env": {
+        "ANTHROPIC_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+3. Restart Claude Desktop
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `parse_document` | Parse PDF/Word/Excel/PowerPoint files |
+| `analyze_image` | AI vision for images and charts |
+| `format_output` | Format as JSON or Markdown |
+| `save_output` | Save to outputs directory |
+| `extract_tables` | Extract only table data |
+| `list_outputs` | List saved output files |
+| `read_output` | Read a saved output file |
+| `delete_output` | Delete an output file |
+
+### Usage in Claude Desktop
+
+Once configured, you can ask Claude:
+- "Parse the document at C:\Users\me\report.pdf"
+- "Extract tables from this Excel file and format as markdown"
+- "Analyze the chart image and describe the trends"
+- "List my parsed output files"
+
 ## API Endpoints
 
 - `GET /` - Main application interface
@@ -205,6 +256,7 @@ For full API integration, use `api_wrapper.py` with your application.
 - ✅ Interactive CLI mode
 - ✅ Document summarization
 - ✅ Chat-based file parsing
+- ✅ MCP server for Claude Desktop
 
 ## Future Enhancements
 
@@ -214,7 +266,6 @@ For full API integration, use `api_wrapper.py` with your application.
 - [ ] Batch processing of multiple files
 - [ ] Cloud storage integration
 - [ ] API authentication
-- [ ] MCP server implementation
 
 📘 See [ENHANCEMENTS_V2.md](ENHANCEMENTS_V2.md) for detailed documentation.
 

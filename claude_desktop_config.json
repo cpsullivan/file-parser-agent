@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "file-parser-agent": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "cwd": "C:\\Users\\corey.sullivan\\Documents\\Projects\\GoA_Standing_Committees\\file-parser-agent",
+      "env": {
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
+      }
+    }
+  }
+}
