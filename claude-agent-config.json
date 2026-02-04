@@ -1,0 +1,492 @@
+{
+  "name": "File Parser Agent",
+  "description": "A document parsing agent that converts PDF, Word, Excel, and PowerPoint files into structured JSON or Markdown format with AI-powered image analysis capabilities.",
+  "version": "2.0",
+  "model": "claude-3-opus-20240229",
+
+  "system_prompt": "You are a File Parser Agent specialized in extracting and structuring content from various document formats. Your primary function is to parse uploaded files (PDF, Word, Excel, PowerPoint) and convert them into clean, structured JSON or Markdown output.\n\n## Core Capabilities\n\n1. **PDF Parsing**: Extract text content page-by-page with metadata (title, author, subject, creator)\n2. **Word Document Parsing**: Extract paragraphs, tables, embedded objects (images, OLE objects like Excel charts), and document metadata\n3. **Excel Parsing**: Extract data from all sheets with row/column structure and sheet metadata\n4. **PowerPoint Parsing**: Extract slides with titles, text content, shapes, notes, and detect images/charts/tables/embedded objects\n5. **AI Vision Analysis**: When enabled, analyze images in PowerPoint presentations to provide detailed descriptions\n\n## Output Formats\n\n### JSON Output Structure\nProvide structured data with:\n- `filename`: Original file name\n- `file_type`: Type of document (pdf, word, excel, powerpoint)\n- `parsed_at`: ISO timestamp of parsing\n- `metadata`: Document metadata specific to file type\n- Content arrays (pages, paragraphs, sheets, slides) based on document type\n\n### Markdown Output Structure\nConvert parsed data to human-readable markdown with:\n- Document title and metadata header\n- Organized sections based on content type\n- Tables rendered as markdown tables\n- Clear slide/page/section separation\n\n## Image Analysis Guidelines\n\nWhen analyzing images (with AI vision enabled):\n1. Describe what the image shows (objects, people, text, graphics)\n2. Identify the image type (photo, diagram, chart, icon, logo, screenshot)\n3. Note key visual elements and their arrangement\n4. Transcribe any visible text\n5. Explain the apparent purpose or message\n6. Relate to business/professional context when applicable\n\n## Chart Analysis Guidelines\n\nWhen analyzing charts/data visualizations:\n1. Identify chart type (bar, line, pie, scatter, etc.)\n2. Describe what data is being shown\n3. Note key trends or patterns\n4. Read axis labels and units\n5. Identify data ranges if readable\n6. Summarize key insights\n\n## Behavioral Guidelines\n\n- Always preserve the original structure and content fidelity\n- Handle errors gracefully and include error messages in output\n- Process large files efficiently\n- Respect the 50MB file size limit\n- Compress images automatically if they exceed API limits\n- Provide clear descriptions for embedded objects that cannot be fully extracted",
+
+  "capabilities": {
+    "file_parsing": {
+      "supported_formats": [
+        {
+          "extension": "pdf",
+          "mime_type": "application/pdf",
+          "parser": "pdf_parser",
+          "extracts": ["text", "metadata", "page_structure"]
+        },
+        {
+          "extension": "docx",
+          "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "parser": "word_parser",
+          "extracts": ["paragraphs", "tables", "metadata", "embedded_objects", "images"]
+        },
+        {
+          "extension": "doc",
+          "mime_type": "application/msword",
+          "parser": "word_parser",
+          "extracts": ["paragraphs", "tables", "metadata", "embedded_objects", "images"]
+        },
+        {
+          "extension": "xlsx",
+          "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "parser": "excel_parser",
+          "extracts": ["sheets", "cell_data", "metadata"]
+        },
+        {
+          "extension": "xls",
+          "mime_type": "application/vnd.ms-excel",
+          "parser": "excel_parser",
+          "extracts": ["sheets", "cell_data", "metadata"]
+        },
+        {
+          "extension": "pptx",
+          "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "parser": "pptx_parser",
+          "extracts": ["slides", "titles", "text", "shapes", "notes", "images", "charts", "tables", "embedded_objects"]
+        },
+        {
+          "extension": "ppt",
+          "mime_type": "application/vnd.ms-powerpoint",
+          "parser": "pptx_parser",
+          "extracts": ["slides", "titles", "text", "shapes", "notes", "images", "charts", "tables", "embedded_objects"]
+        }
+      ],
+      "max_file_size_mb": 50,
+      "output_formats": ["json", "markdown"]
+    },
+
+    "ai_vision": {
+      "enabled_by_default": true,
+      "model": "claude-3-opus-20240229",
+      "max_tokens_per_image": 500,
+      "max_tokens_per_chart": 600,
+      "image_compression": {
+        "enabled": true,
+        "max_size_bytes": 4500000,
+        "supported_formats": ["png", "jpg", "jpeg", "gif", "webp"]
+      },
+      "features": [
+        "image_description",
+        "chart_analysis",
+        "text_extraction_from_images",
+        "visual_element_identification"
+      ]
+    }
+  },
+
+  "tools": [
+    {
+      "name": "parse_file",
+      "description": "Parse an uploaded file and extract its content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the uploaded file"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": ["json", "markdown"],
+            "default": "json",
+            "description": "Desired output format"
+          },
+          "enable_ai_vision": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable AI-powered image analysis for PowerPoint files"
+          }
+        },
+        "required": ["file_path"]
+      }
+    },
+    {
+      "name": "analyze_image",
+      "description": "Analyze an image using Claude Vision API",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_data": {
+            "type": "string",
+            "description": "Base64-encoded image data"
+          },
+          "image_format": {
+            "type": "string",
+            "enum": ["png", "jpg", "jpeg", "gif", "webp"],
+            "description": "Image format"
+          },
+          "context": {
+            "type": "string",
+            "description": "Optional context about where the image appears"
+          },
+          "analysis_type": {
+            "type": "string",
+            "enum": ["general", "chart"],
+            "default": "general",
+            "description": "Type of analysis to perform"
+          }
+        },
+        "required": ["image_data", "image_format"]
+      }
+    },
+    {
+      "name": "convert_to_markdown",
+      "description": "Convert parsed JSON data to Markdown format",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parsed_data": {
+            "type": "object",
+            "description": "Previously parsed file data in JSON format"
+          }
+        },
+        "required": ["parsed_data"]
+      }
+    },
+    {
+      "name": "list_outputs",
+      "description": "List all previously parsed output files",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "download_output",
+      "description": "Download a parsed output file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "Name of the output file to download"
+          }
+        },
+        "required": ["filename"]
+      }
+    },
+    {
+      "name": "delete_output",
+      "description": "Delete a parsed output file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "Name of the output file to delete"
+          }
+        },
+        "required": ["filename"]
+      }
+    },
+    {
+      "name": "clear_all_outputs",
+      "description": "Delete all parsed output files",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+
+  "output_schemas": {
+    "pdf": {
+      "type": "object",
+      "properties": {
+        "filename": { "type": "string" },
+        "file_type": { "type": "string", "const": "pdf" },
+        "parsed_at": { "type": "string", "format": "date-time" },
+        "total_pages": { "type": "integer" },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "author": { "type": "string" },
+            "subject": { "type": "string" },
+            "creator": { "type": "string" }
+          }
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "page_number": { "type": "integer" },
+              "text": { "type": "string" },
+              "char_count": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "word": {
+      "type": "object",
+      "properties": {
+        "filename": { "type": "string" },
+        "file_type": { "type": "string", "const": "word" },
+        "parsed_at": { "type": "string", "format": "date-time" },
+        "total_paragraphs": { "type": "integer" },
+        "total_tables": { "type": "integer" },
+        "image_count": { "type": "integer" },
+        "embedded_object_count": { "type": "integer" },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "author": { "type": "string" },
+            "subject": { "type": "string" },
+            "created": { "type": "string" },
+            "modified": { "type": "string" }
+          }
+        },
+        "paragraphs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string" },
+              "style": { "type": "string" },
+              "has_embedded_objects": { "type": "boolean" },
+              "embedded_type": { "type": "string" },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "table_number": { "type": "integer" },
+              "rows": { "type": "integer" },
+              "columns": { "type": "integer" },
+              "data": { "type": "array" }
+            }
+          }
+        }
+      }
+    },
+    "excel": {
+      "type": "object",
+      "properties": {
+        "filename": { "type": "string" },
+        "file_type": { "type": "string", "const": "excel" },
+        "parsed_at": { "type": "string", "format": "date-time" },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "total_sheets": { "type": "integer" },
+            "sheet_names": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "sheets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "rows": { "type": "integer" },
+              "columns": { "type": "integer" },
+              "data": { "type": "array" }
+            }
+          }
+        }
+      }
+    },
+    "powerpoint": {
+      "type": "object",
+      "properties": {
+        "filename": { "type": "string" },
+        "file_type": { "type": "string", "const": "powerpoint" },
+        "parsed_at": { "type": "string", "format": "date-time" },
+        "ai_vision_enabled": { "type": "boolean" },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "total_slides": { "type": "integer" },
+            "slide_width": { "type": "integer" },
+            "slide_height": { "type": "integer" }
+          }
+        },
+        "slides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "slide_number": { "type": "integer" },
+              "title": { "type": "string" },
+              "text": { "type": "string" },
+              "notes": { "type": "string" },
+              "image_count": { "type": "integer" },
+              "chart_count": { "type": "integer" },
+              "shapes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string" },
+                    "content_type": { "type": "string" },
+                    "has_text": { "type": "boolean" },
+                    "text": { "type": "string" },
+                    "description": { "type": "string" },
+                    "note": { "type": "string" },
+                    "ai_analysis": { "type": "object" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "configuration": {
+    "environment_variables": {
+      "ANTHROPIC_API_KEY": {
+        "required": true,
+        "description": "API key for Claude Vision capabilities"
+      },
+      "ENABLE_AI_VISION": {
+        "required": false,
+        "default": "true",
+        "description": "Enable or disable AI-powered image analysis"
+      }
+    },
+    "settings": {
+      "max_file_size_mb": 50,
+      "upload_folder": "uploads",
+      "output_folder": "outputs",
+      "server_port": 5000,
+      "server_host": "0.0.0.0"
+    }
+  },
+
+  "dependencies": {
+    "python": ">=3.8",
+    "packages": [
+      { "name": "Flask", "version": "3.0.0" },
+      { "name": "PyPDF2", "version": "3.0.1" },
+      { "name": "python-docx", "version": "1.1.0" },
+      { "name": "openpyxl", "version": "3.1.2" },
+      { "name": "python-pptx", "version": "0.6.23" },
+      { "name": "Werkzeug", "version": "3.0.1" },
+      { "name": "anthropic", "version": "0.77.1" },
+      { "name": "Pillow", "version": "10.2.0" },
+      { "name": "python-dotenv", "version": "1.0.0" }
+    ]
+  },
+
+  "api_endpoints": [
+    {
+      "method": "GET",
+      "path": "/",
+      "description": "Main application interface"
+    },
+    {
+      "method": "POST",
+      "path": "/upload",
+      "description": "Upload and parse file",
+      "parameters": {
+        "file": "multipart/form-data file upload",
+        "format": "json or markdown (default: json)"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/download/<filename>",
+      "description": "Download parsed file"
+    },
+    {
+      "method": "GET",
+      "path": "/list-outputs",
+      "description": "List all parsed files"
+    },
+    {
+      "method": "DELETE",
+      "path": "/delete/<filename>",
+      "description": "Delete individual parsed file"
+    },
+    {
+      "method": "POST",
+      "path": "/clear-all",
+      "description": "Clear all parsed files"
+    }
+  ],
+
+  "examples": {
+    "parse_pdf_request": {
+      "description": "Parse a PDF file to JSON",
+      "request": {
+        "file": "document.pdf",
+        "format": "json"
+      },
+      "response": {
+        "success": true,
+        "filename": "document_20260204_120000.json",
+        "original_filename": "document.pdf",
+        "format": "json",
+        "parsed_data": {
+          "filename": "document.pdf",
+          "file_type": "pdf",
+          "parsed_at": "2026-02-04T12:00:00",
+          "total_pages": 5,
+          "pages": [
+            { "page_number": 1, "text": "Page content...", "char_count": 1234 }
+          ]
+        }
+      }
+    },
+    "parse_pptx_with_vision": {
+      "description": "Parse PowerPoint with AI image analysis",
+      "request": {
+        "file": "presentation.pptx",
+        "format": "json"
+      },
+      "response": {
+        "success": true,
+        "parsed_data": {
+          "filename": "presentation.pptx",
+          "file_type": "powerpoint",
+          "ai_vision_enabled": true,
+          "slides": [
+            {
+              "slide_number": 1,
+              "title": "Introduction",
+              "shapes": [
+                {
+                  "type": "PICTURE",
+                  "content_type": "image",
+                  "description": "A professional business logo featuring...",
+                  "ai_analysis": {
+                    "description": "The image shows a corporate logo with blue and white colors...",
+                    "enabled": true,
+                    "model": "claude-3-opus-20240229"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+
+  "limitations": [
+    "OCR not included - scanned PDFs may have limited text extraction",
+    "Complex formatting may not be fully preserved",
+    "Maximum file size: 50MB",
+    "Images are analyzed but not extracted/saved separately",
+    "Password-protected files are not supported"
+  ],
+
+  "future_enhancements": [
+    "OCR support for scanned documents",
+    "Extract and save images from files",
+    "Batch processing of multiple files",
+    "Cloud storage integration",
+    "API authentication",
+    "Advanced embedded Excel chart data extraction"
+  ]
+}
