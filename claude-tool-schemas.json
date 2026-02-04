@@ -1,0 +1,428 @@
+{
+  "tools": [
+    {
+      "name": "file_reader",
+      "description": "Read and validate an uploaded document file. Accepts PDF, Word (DOCX/DOC), Excel (XLSX/XLS), and PowerPoint (PPTX/PPT) files. Returns file metadata and raw content for further processing.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_content": {
+            "type": "string",
+            "description": "Base64-encoded file content"
+          },
+          "filename": {
+            "type": "string",
+            "description": "Original filename with extension (e.g., 'report.pdf', 'data.xlsx')"
+          },
+          "validate_only": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, only validate the file without reading full content"
+          }
+        },
+        "required": ["file_content", "filename"]
+      }
+    },
+    {
+      "name": "parse_document",
+      "description": "Parse a document and extract structured content. Handles PDF (text + metadata), Word (paragraphs + tables + embedded objects), Excel (all sheets with cell data), and PowerPoint (slides + shapes + notes). Returns structured data ready for formatting.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_content": {
+            "type": "string",
+            "description": "Base64-encoded file content"
+          },
+          "filename": {
+            "type": "string",
+            "description": "Original filename with extension"
+          },
+          "file_type": {
+            "type": "string",
+            "enum": ["pdf", "word", "excel", "powerpoint"],
+            "description": "Document type. If not provided, will be inferred from filename extension."
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "extract_images": {
+                "type": "boolean",
+                "default": true,
+                "description": "Extract and analyze images (PowerPoint/Word)"
+              },
+              "extract_tables": {
+                "type": "boolean",
+                "default": true,
+                "description": "Extract table data (Word/PowerPoint)"
+              },
+              "extract_metadata": {
+                "type": "boolean",
+                "default": true,
+                "description": "Include document metadata"
+              },
+              "include_notes": {
+                "type": "boolean",
+                "default": true,
+                "description": "Include speaker notes (PowerPoint only)"
+              },
+              "sheet_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Specific sheet names to extract (Excel only). If empty, extracts all sheets."
+              },
+              "page_range": {
+                "type": "object",
+                "properties": {
+                  "start": { "type": "integer", "minimum": 1 },
+                  "end": { "type": "integer", "minimum": 1 }
+                },
+                "description": "Page range to extract (PDF only)"
+              }
+            }
+          }
+        },
+        "required": ["file_content", "filename"]
+      }
+    },
+    {
+      "name": "analyze_image",
+      "description": "Analyze an image using AI vision to generate a detailed description. Supports general image description and specialized chart/data visualization analysis. Use for images extracted from documents or standalone image files.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_content": {
+            "type": "string",
+            "description": "Base64-encoded image data"
+          },
+          "image_format": {
+            "type": "string",
+            "enum": ["png", "jpg", "jpeg", "gif", "webp"],
+            "description": "Image format"
+          },
+          "analysis_type": {
+            "type": "string",
+            "enum": ["general", "chart", "diagram", "screenshot", "logo"],
+            "default": "general",
+            "description": "Type of analysis to perform. 'chart' provides data-focused analysis, 'diagram' focuses on structure and flow, 'screenshot' extracts UI elements and text."
+          },
+          "context": {
+            "type": "string",
+            "description": "Optional context about where the image appears (e.g., 'Slide 3 of quarterly report', 'Figure 2 in methodology section')"
+          },
+          "extract_text": {
+            "type": "boolean",
+            "default": true,
+            "description": "Attempt to extract and transcribe any visible text in the image"
+          },
+          "detail_level": {
+            "type": "string",
+            "enum": ["brief", "standard", "detailed"],
+            "default": "standard",
+            "description": "Level of detail in the description. 'brief' for 1-2 sentences, 'standard' for a paragraph, 'detailed' for comprehensive analysis."
+          }
+        },
+        "required": ["image_content", "image_format"]
+      }
+    },
+    {
+      "name": "format_as_json",
+      "description": "Format parsed document data as clean, structured JSON. Applies consistent formatting, handles null values, and validates against the appropriate schema for the document type.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parsed_data": {
+            "type": "object",
+            "description": "Parsed document data from parse_document tool"
+          },
+          "pretty_print": {
+            "type": "boolean",
+            "default": true,
+            "description": "Format JSON with indentation for readability"
+          },
+          "include_nulls": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include fields with null values in output"
+          },
+          "flatten_structure": {
+            "type": "boolean",
+            "default": false,
+            "description": "Flatten nested structures into dot-notation keys"
+          }
+        },
+        "required": ["parsed_data"]
+      }
+    },
+    {
+      "name": "format_as_markdown",
+      "description": "Convert parsed document data to human-readable Markdown format. Creates properly structured document with headers, tables, and formatted content sections.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parsed_data": {
+            "type": "object",
+            "description": "Parsed document data from parse_document tool"
+          },
+          "include_metadata_header": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include document metadata at the top"
+          },
+          "table_format": {
+            "type": "string",
+            "enum": ["markdown", "html", "plain"],
+            "default": "markdown",
+            "description": "Format for table rendering"
+          },
+          "heading_style": {
+            "type": "string",
+            "enum": ["atx", "setext"],
+            "default": "atx",
+            "description": "Markdown heading style. 'atx' uses # symbols, 'setext' uses underlines."
+          },
+          "include_toc": {
+            "type": "boolean",
+            "default": false,
+            "description": "Generate table of contents at the beginning"
+          },
+          "image_placeholder": {
+            "type": "string",
+            "default": "[Image: {description}]",
+            "description": "Template for image placeholders. Use {description} for AI-generated description."
+          }
+        },
+        "required": ["parsed_data"]
+      }
+    },
+    {
+      "name": "create_artifact",
+      "description": "Generate a downloadable output file from parsed or formatted content. Creates the final deliverable for the user.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "Content to write to the file (JSON string or Markdown text)"
+          },
+          "filename": {
+            "type": "string",
+            "description": "Output filename (e.g., 'parsed_report.json', 'summary.md')"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["json", "markdown", "txt", "csv"],
+            "description": "Output file format"
+          },
+          "encoding": {
+            "type": "string",
+            "enum": ["utf-8", "utf-16", "ascii"],
+            "default": "utf-8",
+            "description": "Text encoding for the output file"
+          }
+        },
+        "required": ["content", "filename", "format"]
+      }
+    },
+    {
+      "name": "extract_tables",
+      "description": "Extract only table data from a document. Returns tables in a structured format suitable for data analysis or spreadsheet import.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_content": {
+            "type": "string",
+            "description": "Base64-encoded file content"
+          },
+          "filename": {
+            "type": "string",
+            "description": "Original filename with extension"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": ["json", "csv", "markdown"],
+            "default": "json",
+            "description": "Format for table output"
+          },
+          "include_headers": {
+            "type": "boolean",
+            "default": true,
+            "description": "Treat first row as headers"
+          },
+          "table_index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Extract only a specific table by index (0-based). If not provided, extracts all tables."
+          },
+          "merge_tables": {
+            "type": "boolean",
+            "default": false,
+            "description": "Merge all tables with same column structure into one"
+          }
+        },
+        "required": ["file_content", "filename"]
+      }
+    },
+    {
+      "name": "summarize_document",
+      "description": "Generate a concise summary of a parsed document. Identifies key points, main topics, and important data.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parsed_data": {
+            "type": "object",
+            "description": "Parsed document data from parse_document tool"
+          },
+          "summary_length": {
+            "type": "string",
+            "enum": ["brief", "standard", "detailed"],
+            "default": "standard",
+            "description": "Desired summary length. 'brief' is 2-3 sentences, 'standard' is a paragraph, 'detailed' is multiple paragraphs with sections."
+          },
+          "focus_areas": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["key_points", "data_highlights", "action_items", "conclusions", "methodology", "findings"]
+            },
+            "description": "Specific areas to focus on in the summary"
+          },
+          "include_statistics": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include document statistics (page count, word count, table count, etc.)"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": ["paragraph", "bullets", "structured"],
+            "default": "structured",
+            "description": "Format for the summary output"
+          }
+        },
+        "required": ["parsed_data"]
+      }
+    },
+    {
+      "name": "compare_documents",
+      "description": "Compare two parsed documents and identify differences. Useful for version comparison, change tracking, or document review.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document_a": {
+            "type": "object",
+            "description": "First parsed document data"
+          },
+          "document_b": {
+            "type": "object",
+            "description": "Second parsed document data"
+          },
+          "comparison_type": {
+            "type": "string",
+            "enum": ["full", "text_only", "structure_only", "metadata_only"],
+            "default": "full",
+            "description": "Type of comparison to perform"
+          },
+          "ignore_whitespace": {
+            "type": "boolean",
+            "default": true,
+            "description": "Ignore whitespace differences in text comparison"
+          },
+          "ignore_case": {
+            "type": "boolean",
+            "default": false,
+            "description": "Perform case-insensitive text comparison"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": ["diff", "summary", "detailed"],
+            "default": "summary",
+            "description": "'diff' shows line-by-line changes, 'summary' shows overview of changes, 'detailed' includes both"
+          }
+        },
+        "required": ["document_a", "document_b"]
+      }
+    },
+    {
+      "name": "batch_parse",
+      "description": "Process multiple documents in a single operation. Returns parsed data for each file with consistent structure.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "file_content": {
+                  "type": "string",
+                  "description": "Base64-encoded file content"
+                },
+                "filename": {
+                  "type": "string",
+                  "description": "Original filename"
+                }
+              },
+              "required": ["file_content", "filename"]
+            },
+            "description": "Array of files to process",
+            "maxItems": 10
+          },
+          "output_format": {
+            "type": "string",
+            "enum": ["json", "markdown"],
+            "default": "json",
+            "description": "Output format for all parsed documents"
+          },
+          "continue_on_error": {
+            "type": "boolean",
+            "default": true,
+            "description": "Continue processing remaining files if one fails"
+          },
+          "merge_results": {
+            "type": "boolean",
+            "default": false,
+            "description": "Merge all results into a single output document"
+          }
+        },
+        "required": ["files"]
+      }
+    }
+  ],
+
+  "tool_groups": {
+    "essential": {
+      "description": "Minimum tools needed for basic operation",
+      "tools": ["file_reader", "parse_document", "analyze_image", "create_artifact"]
+    },
+    "formatting": {
+      "description": "Output formatting tools",
+      "tools": ["format_as_json", "format_as_markdown"]
+    },
+    "advanced": {
+      "description": "Enhanced functionality for power users",
+      "tools": ["extract_tables", "summarize_document", "compare_documents", "batch_parse"]
+    }
+  },
+
+  "usage_examples": [
+    {
+      "scenario": "Parse a PDF and get JSON output",
+      "tool_sequence": ["file_reader", "parse_document", "format_as_json", "create_artifact"],
+      "description": "Standard workflow for converting a PDF to structured JSON"
+    },
+    {
+      "scenario": "Extract and describe PowerPoint images",
+      "tool_sequence": ["file_reader", "parse_document", "analyze_image"],
+      "description": "Parse presentation and generate AI descriptions for each image"
+    },
+    {
+      "scenario": "Compare two document versions",
+      "tool_sequence": ["parse_document", "parse_document", "compare_documents"],
+      "description": "Parse both versions and identify differences"
+    },
+    {
+      "scenario": "Extract all tables from Excel to CSV",
+      "tool_sequence": ["file_reader", "extract_tables", "create_artifact"],
+      "description": "Direct table extraction without full parsing"
+    }
+  ]
+}
