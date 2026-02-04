@@ -29,15 +29,33 @@ A simple web-based file parser that converts PDF, Word, Excel, and PowerPoint fi
 pip install -r requirements.txt
 ```
 
-### 2. Run the Application
+### 2. Set Up Environment
 
+Create a `.env` file with your Anthropic API key (for AI vision features):
+```bash
+ANTHROPIC_API_KEY=your-api-key-here
+ENABLE_AI_VISION=true
+```
+
+### 3. Run the Application
+
+**Web Interface:**
 ```bash
 python app.py
 ```
-
-### 3. Open in Browser
-
 Navigate to: `http://localhost:5000`
+
+**API Wrapper (CLI):**
+```bash
+python api_wrapper.py document.pdf json
+```
+
+**Interactive Mode:**
+```bash
+python api_wrapper.py
+>>> parse report.pdf markdown
+>>> chat What file formats do you support?
+```
 
 ## Usage
 
@@ -76,20 +94,73 @@ Human-readable format with headers and tables:
 
 ```
 file-parser-agent/
-├── app.py              # Flask application
-├── requirements.txt    # Python dependencies
-├── parsers/           # File parser modules
+├── app.py                    # Flask web application
+├── api_wrapper.py            # Claude API integration with tools
+├── examples.py               # Usage examples
+├── requirements.txt          # Python dependencies
+├── parsers/                  # File parser modules
 │   ├── pdf_parser.py
 │   ├── word_parser.py
 │   ├── excel_parser.py
-│   └── pptx_parser.py
-├── templates/         # HTML templates
+│   ├── pptx_parser.py
+│   └── image_analyzer.py     # AI vision for images
+├── templates/                # HTML templates
 │   └── index.html
-├── static/           # CSS and assets
+├── static/                   # CSS and assets
 │   └── style.css
-├── uploads/          # Temporary file storage
-└── outputs/          # Parsed file storage
+├── claude-agent-config.json  # Claude console agent definition
+├── claude-instructions.md    # Project instructions for Claude
+├── claude-tool-schemas.json  # Tool schemas for Claude API
+├── uploads/                  # Temporary file storage
+└── outputs/                  # Parsed file storage
 ```
+
+## Claude API Integration
+
+The `api_wrapper.py` provides full Claude API integration with tool-use:
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `file_reader` | Validate and read uploaded files |
+| `parse_document` | Extract structured content from documents |
+| `analyze_image` | AI vision for images and charts |
+| `format_as_json` | Format output as JSON |
+| `format_as_markdown` | Format output as Markdown |
+| `create_artifact` | Save output to file |
+| `extract_tables` | Extract only table data |
+| `summarize_document` | Generate document summaries |
+
+### Python Usage
+
+```python
+from api_wrapper import FileParserAgent
+
+# Initialize agent
+agent = FileParserAgent()
+
+# Parse a file directly
+result = agent.parse_file("report.pdf", output_format="markdown")
+print(result['content'])
+
+# Chat with the agent
+response = agent.chat("Summarize the key points from this document",
+                      file_content=base64_content,
+                      filename="report.pdf")
+
+# Use individual tools
+parsed = agent.tool_parse_document(file_content, filename)
+summary = agent.tool_summarize_document(parsed, summary_length="detailed")
+```
+
+### Claude Console Setup
+
+1. Create a new project at [claude.ai](https://claude.ai)
+2. Add contents of `claude-instructions.md` to custom instructions
+3. Upload `claude-tool-schemas.json` as project knowledge
+
+For full API integration, use `api_wrapper.py` with your application.
 
 ## API Endpoints
 
@@ -127,15 +198,23 @@ file-parser-agent/
 - ✅ Enhanced Word parsing (embedded Excel detection)
 - ✅ Rich metadata extraction for all file types
 
+## Version 3.0 Enhancements ✅
+
+- ✅ AI-powered image descriptions (Claude Vision)
+- ✅ Claude API wrapper with tool-use integration
+- ✅ Interactive CLI mode
+- ✅ Document summarization
+- ✅ Chat-based file parsing
+
 ## Future Enhancements
 
-- [ ] AI-powered image descriptions (Claude Vision / GPT-4 Vision)
 - [ ] Advanced embedded Excel chart data extraction
 - [ ] Add OCR support for scanned documents
 - [ ] Extract and save images from files
 - [ ] Batch processing of multiple files
 - [ ] Cloud storage integration
 - [ ] API authentication
+- [ ] MCP server implementation
 
 📘 See [ENHANCEMENTS_V2.md](ENHANCEMENTS_V2.md) for detailed documentation.
 
