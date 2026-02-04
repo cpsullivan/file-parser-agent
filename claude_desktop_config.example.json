@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "file-parser": {
+      "command": "python",
+      "args": [
+        "/path/to/file-parser-agent/mcp_server.py"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}

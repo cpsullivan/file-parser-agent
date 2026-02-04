@@ -5,130 +5,188 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>File Parser Agent</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📄</text></svg>">
 </head>
 <body>
     <div class="container">
+        <!-- Header -->
         <header>
             <h1>📄 File Parser Agent</h1>
             <p>Convert PDF, Word, Excel, and PowerPoint files to JSON or Markdown</p>
         </header>
-
-        <div class="main-content">
-            <!-- Left Column: Upload -->
-            <div class="column upload-column">
-                <h2>Upload Files</h2>
-                <div class="instructions">
-                    <p><strong>Instructions:</strong></p>
-                    <ul>
-                        <li>Drag & drop files or click to browse</li>
-                        <li>Supported: PDF, DOCX, XLSX, PPTX</li>
-                        <li>Max size: 50MB per file</li>
-                        <li>Choose output format (JSON or Markdown)</li>
-                    </ul>
-                </div>
-
-                <div class="upload-area" id="uploadArea">
-                    <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt" multiple>
-                    <div class="upload-prompt">
-                        <span class="upload-icon">📁</span>
-                        <p>Drag & drop files here</p>
-                        <p class="or-text">or</p>
-                        <button class="browse-btn" onclick="document.getElementById('fileInput').click()">
+        
+        <!-- Main Content -->
+        <main class="two-column">
+            <!-- Upload Section -->
+            <section class="upload-section">
+                <h2>Upload File</h2>
+                
+                <!-- Drop Zone -->
+                <div class="drop-zone" id="dropZone">
+                    <div class="drop-zone-content">
+                        <div class="drop-icon">📁</div>
+                        <p class="drop-text">Drag & drop file here</p>
+                        <p class="drop-subtext">or</p>
+                        <label class="file-input-label">
                             Browse Files
+                            <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt" hidden>
+                        </label>
+                        <p class="supported-formats">
+                            Supports: PDF, Word, Excel, PowerPoint (max 50MB)
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Options -->
+                <div class="options-panel">
+                    <div class="option-group">
+                        <label class="option-label">Output Format</label>
+                        <div class="radio-group">
+                            <label class="radio-item">
+                                <input type="radio" name="format" value="json" checked>
+                                <span class="radio-custom"></span>
+                                <span class="radio-text">JSON</span>
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="format" value="markdown">
+                                <span class="radio-custom"></span>
+                                <span class="radio-text">Markdown</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="option-group" id="aiVisionOption">
+                        <label class="option-label">AI Vision</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="aiVisionToggle" checked>
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-text">Analyze images in PowerPoint</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Status -->
+                <div id="uploadStatus" class="status hidden"></div>
+                
+                <!-- Preview Panel -->
+                <div id="previewPanel" class="preview-panel hidden">
+                    <div class="preview-header">
+                        <h3>Parsing Result</h3>
+                        <button id="closePreview" class="btn-icon" title="Close preview">✕</button>
+                    </div>
+                    <div id="previewContent" class="preview-content"></div>
+                </div>
+            </section>
+            
+            <!-- Results Section -->
+            <section class="results-section">
+                <div class="results-header">
+                    <h2>Parsed Files</h2>
+                    <div class="results-actions">
+                        <button id="refreshBtn" class="btn-secondary" title="Refresh list">
+                            🔄 Refresh
+                        </button>
+                        <button id="clearAllBtn" class="btn-danger" title="Delete all files">
+                            🗑️ Clear All
                         </button>
                     </div>
                 </div>
-
-                <div class="format-selector">
-                    <label>
-                        <input type="radio" name="format" value="json" checked>
-                        JSON
-                    </label>
-                    <label>
-                        <input type="radio" name="format" value="markdown">
-                        Markdown
-                    </label>
+                
+                <!-- File List -->
+                <div id="fileList" class="file-list">
+                    <div class="loading">Loading...</div>
                 </div>
-
-                <div class="upload-status" id="uploadStatus"></div>
-
-                <div class="file-queue" id="fileQueue"></div>
-            </div>
-
-            <!-- Right Column: Results -->
-            <div class="column results-column">
-                <div class="results-header">
-                    <h2>Parsed Files</h2>
-                    <button onclick="clearAllFiles()" class="btn-clear-all" id="clearAllBtn" style="display:none;">
-                        🗑️ Clear All
-                    </button>
-                </div>
-                <div class="results-list" id="resultsList">
-                    <p class="empty-state">No files parsed yet. Upload a file to get started.</p>
-                </div>
-            </div>
-        </div>
+            </section>
+        </main>
+        
+        <!-- Footer -->
+        <footer>
+            <p>File Parser Agent v2.0 • Supports PDF, DOCX, XLSX, PPTX</p>
+        </footer>
     </div>
 
     <script>
-        // File upload handling
-        const uploadArea = document.getElementById('uploadArea');
+        // =====================================================
+        // DOM Elements
+        // =====================================================
+        const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
         const uploadStatus = document.getElementById('uploadStatus');
-        const resultsList = document.getElementById('resultsList');
-        const fileQueue = document.getElementById('fileQueue');
+        const fileList = document.getElementById('fileList');
+        const previewPanel = document.getElementById('previewPanel');
+        const previewContent = document.getElementById('previewContent');
+        const closePreview = document.getElementById('closePreview');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const clearAllBtn = document.getElementById('clearAllBtn');
 
-        // Drag and drop
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('drag-over');
-        });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('drag-over');
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('drag-over');
-            const files = e.dataTransfer.files;
-            handleFiles(files);
-        });
-
-        fileInput.addEventListener('change', (e) => {
-            handleFiles(e.target.files);
-        });
-
-        function getSelectedFormat() {
-            return document.querySelector('input[name="format"]:checked').value;
-        }
-
-        function handleFiles(files) {
-            Array.from(files).forEach(file => {
-                uploadFile(file);
+        // =====================================================
+        // Drag and Drop Handling
+        // =====================================================
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, e => {
+                e.preventDefault();
+                e.stopPropagation();
             });
-        }
+        });
 
-        function showStatus(message, type = 'info') {
-            uploadStatus.innerHTML = `<div class="status-${type}">${message}</div>`;
-            setTimeout(() => {
-                uploadStatus.innerHTML = '';
-            }, 5000);
-        }
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.add('drag-over');
+            });
+        });
 
-        async function uploadFile(file) {
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.remove('drag-over');
+            });
+        });
+
+        dropZone.addEventListener('drop', e => {
+            const files = e.dataTransfer.files;
+            if (files.length) {
+                handleFile(files[0]);
+            }
+        });
+
+        // Click to browse
+        dropZone.addEventListener('click', (e) => {
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'LABEL') {
+                fileInput.click();
+            }
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) {
+                handleFile(fileInput.files[0]);
+            }
+        });
+
+        // =====================================================
+        // File Upload Handler
+        // =====================================================
+        async function handleFile(file) {
+            // Validate file size
+            const maxSize = 50 * 1024 * 1024; // 50MB
+            if (file.size > maxSize) {
+                showStatus('error', `File too large. Maximum size is 50MB.`);
+                return;
+            }
+
+            // Get selected format
+            const format = document.querySelector('input[name="format"]:checked').value;
+            
+            // Get AI Vision setting
+            const aiVision = document.getElementById('aiVisionToggle').checked;
+
+            // Show loading status
+            showStatus('loading', `Parsing ${file.name}...`);
+            hidePreview();
+
+            // Prepare form data
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('format', getSelectedFormat());
-
-            // Add to queue
-            const queueItem = document.createElement('div');
-            queueItem.className = 'queue-item processing';
-            queueItem.innerHTML = `
-                <span class="queue-filename">${file.name}</span>
-                <span class="queue-status">Processing...</span>
-            `;
-            fileQueue.appendChild(queueItem);
+            formData.append('format', format);
+            formData.append('ai_vision', aiVision.toString());
 
             try {
                 const response = await fetch('/upload', {
@@ -138,179 +196,297 @@
 
                 const result = await response.json();
 
-                if (response.ok && result.success) {
-                    queueItem.className = 'queue-item success';
-                    queueItem.querySelector('.queue-status').textContent = '✓ Complete';
-
-                    setTimeout(() => queueItem.remove(), 2000);
-                    addResultItem(result);
-                    showStatus(`Successfully parsed: ${file.name}`, 'success');
+                if (result.success) {
+                    let statusMsg = `✓ Parsed successfully: ${result.filename}`;
+                    
+                    // Add AI vision info if applicable
+                    if (result.parsed_data.ai_vision_enabled) {
+                        const summary = result.parsed_data.ai_analysis_summary;
+                        if (summary) {
+                            if (summary.ai_available) {
+                                statusMsg += ` (${summary.images_analyzed}/${summary.images_total} images analyzed)`;
+                            } else {
+                                statusMsg += ' (AI Vision not configured)';
+                            }
+                        }
+                    }
+                    
+                    showStatus('success', statusMsg);
+                    showPreview(result.parsed_data, format);
+                    loadFileList();
+                    fileInput.value = ''; // Reset input
                 } else {
-                    throw new Error(result.error || 'Upload failed');
+                    showStatus('error', `✗ Error: ${result.error}`);
                 }
             } catch (error) {
-                queueItem.className = 'queue-item error';
-                queueItem.querySelector('.queue-status').textContent = '✗ Failed';
-                showStatus(`Error: ${error.message}`, 'error');
-
-                setTimeout(() => queueItem.remove(), 5000);
+                showStatus('error', `✗ Upload failed: ${error.message}`);
             }
         }
 
-        function addResultItem(result) {
-            // Remove empty state
-            const emptyState = resultsList.querySelector('.empty-state');
-            if (emptyState) {
-                emptyState.remove();
+        // =====================================================
+        // Status Display
+        // =====================================================
+        function showStatus(type, message) {
+            uploadStatus.textContent = message;
+            uploadStatus.className = `status ${type}`;
+            uploadStatus.classList.remove('hidden');
+
+            // Auto-hide success messages
+            if (type === 'success') {
+                setTimeout(() => {
+                    uploadStatus.classList.add('hidden');
+                }, 5000);
             }
+        }
 
-            const resultItem = document.createElement('div');
-            resultItem.className = 'result-item';
+        // =====================================================
+        // Preview Panel
+        // =====================================================
+        function showPreview(data, format) {
+            let html = '';
 
-            const fileTypeIcon = {
-                'pdf': '📕',
-                'word': '📘',
-                'excel': '📗',
-                'powerpoint': '📙'
-            }[result.parsed_data.file_type] || '📄';
+            const fileType = data.file_type || 'unknown';
+            
+            // Header info
+            html += `<div class="preview-meta">`;
+            html += `<span class="meta-item"><strong>Type:</strong> ${fileType.toUpperCase()}</span>`;
+            
+            if (fileType === 'pdf') {
+                html += `<span class="meta-item"><strong>Pages:</strong> ${data.total_pages || 0}</span>`;
+            } else if (fileType === 'word') {
+                html += `<span class="meta-item"><strong>Paragraphs:</strong> ${data.total_paragraphs || 0}</span>`;
+                html += `<span class="meta-item"><strong>Tables:</strong> ${data.total_tables || 0}</span>`;
+            } else if (fileType === 'excel') {
+                const sheets = data.metadata?.sheet_names || [];
+                html += `<span class="meta-item"><strong>Sheets:</strong> ${sheets.length}</span>`;
+            } else if (fileType === 'powerpoint') {
+                html += `<span class="meta-item"><strong>Slides:</strong> ${data.metadata?.total_slides || 0}</span>`;
+            }
+            
+            html += `</div>`;
 
-            resultItem.innerHTML = `
-                <div class="result-header">
-                    <span class="result-icon">${fileTypeIcon}</span>
-                    <div class="result-info">
-                        <div class="result-filename">${result.original_filename}</div>
-                        <div class="result-meta">
-                            ${result.format.toUpperCase()} •
-                            ${new Date().toLocaleTimeString()}
+            // Content preview
+            html += `<div class="preview-data">`;
+            
+            if (format === 'json') {
+                html += `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+            } else {
+                // Simple markdown preview
+                if (fileType === 'pdf' && data.pages) {
+                    data.pages.slice(0, 2).forEach(page => {
+                        html += `<div class="preview-section">`;
+                        html += `<h4>Page ${page.page_number}</h4>`;
+                        html += `<p>${escapeHtml(page.text.substring(0, 500))}${page.text.length > 500 ? '...' : ''}</p>`;
+                        html += `</div>`;
+                    });
+                } else if (fileType === 'word' && data.paragraphs) {
+                    html += `<div class="preview-section">`;
+                    data.paragraphs.slice(0, 5).forEach(para => {
+                        html += `<p>${escapeHtml(para.text)}</p>`;
+                    });
+                    html += `</div>`;
+                } else if (fileType === 'powerpoint' && data.slides) {
+                    // Show AI Vision status
+                    if (data.ai_vision_enabled) {
+                        html += `<div class="ai-status ${data.ai_vision_available ? 'available' : 'unavailable'}">`;
+                        html += data.ai_vision_available 
+                            ? '🤖 AI Vision: Active' 
+                            : '⚠️ AI Vision: Not configured (set ANTHROPIC_API_KEY)';
+                        html += '</div>';
+                    }
+                    
+                    data.slides.slice(0, 3).forEach(slide => {
+                        html += `<div class="preview-section">`;
+                        html += `<h4>Slide ${slide.slide_number}: ${escapeHtml(slide.title || 'Untitled')}</h4>`;
+                        
+                        // Show image/chart counts
+                        if (slide.image_count || slide.chart_count) {
+                            html += `<div class="content-badges">`;
+                            if (slide.image_count) html += `<span class="badge">🖼️ ${slide.image_count} image(s)</span>`;
+                            if (slide.chart_count) html += `<span class="badge">📊 ${slide.chart_count} chart(s)</span>`;
+                            html += `</div>`;
+                        }
+                        
+                        if (slide.text) {
+                            html += `<p>${escapeHtml(slide.text.substring(0, 200))}</p>`;
+                        }
+                        
+                        // Show AI-analyzed images
+                        const analyzedImages = slide.shapes?.filter(s => 
+                            s.content_type === 'image' && s.ai_analysis?.description
+                        ) || [];
+                        
+                        if (analyzedImages.length > 0) {
+                            html += `<div class="ai-descriptions">`;
+                            analyzedImages.forEach((img, i) => {
+                                html += `<div class="ai-description">`;
+                                html += `<strong>🤖 Image ${i + 1}:</strong> `;
+                                html += escapeHtml(img.ai_analysis.description.substring(0, 300));
+                                if (img.ai_analysis.description.length > 300) html += '...';
+                                html += `</div>`;
+                            });
+                            html += `</div>`;
+                        }
+                        
+                        html += `</div>`;
+                    });
+                } else if (fileType === 'excel' && data.sheets) {
+                    data.sheets.slice(0, 2).forEach(sheet => {
+                        html += `<div class="preview-section">`;
+                        html += `<h4>${escapeHtml(sheet.name)}</h4>`;
+                        if (sheet.data && sheet.data.length > 0) {
+                            html += `<table class="preview-table">`;
+                            sheet.data.slice(0, 5).forEach((row, i) => {
+                                html += `<tr>`;
+                                row.slice(0, 5).forEach(cell => {
+                                    const tag = i === 0 ? 'th' : 'td';
+                                    html += `<${tag}>${escapeHtml(String(cell))}</${tag}>`;
+                                });
+                                html += `</tr>`;
+                            });
+                            html += `</table>`;
+                        }
+                        html += `</div>`;
+                    });
+                }
+            }
+            
+            html += `</div>`;
+
+            previewContent.innerHTML = html;
+            previewPanel.classList.remove('hidden');
+        }
+
+        function hidePreview() {
+            previewPanel.classList.add('hidden');
+        }
+
+        closePreview.addEventListener('click', hidePreview);
+
+        // =====================================================
+        // File List
+        // =====================================================
+        async function loadFileList() {
+            try {
+                const response = await fetch('/list-outputs');
+                const files = await response.json();
+
+                if (files.length === 0) {
+                    fileList.innerHTML = '<div class="empty-state">No parsed files yet</div>';
+                    return;
+                }
+
+                fileList.innerHTML = files.map(file => `
+                    <div class="file-item">
+                        <div class="file-info">
+                            <span class="file-icon">${getFileIcon(file.filename)}</span>
+                            <div class="file-details">
+                                <span class="file-name" title="${escapeHtml(file.filename)}">${escapeHtml(file.filename)}</span>
+                                <span class="file-meta">${file.size_human} • ${formatDate(file.modified)}</span>
+                            </div>
+                        </div>
+                        <div class="file-actions">
+                            <a href="/view/${encodeURIComponent(file.filename)}" 
+                               target="_blank" 
+                               class="btn-icon" 
+                               title="View">👁️</a>
+                            <a href="/download/${encodeURIComponent(file.filename)}" 
+                               class="btn-icon" 
+                               title="Download">⬇️</a>
+                            <button onclick="deleteFile('${escapeHtml(file.filename)}')" 
+                                    class="btn-icon" 
+                                    title="Delete">🗑️</button>
                         </div>
                     </div>
-                </div>
-                <div class="result-preview">
-                    <pre>${JSON.stringify(result.parsed_data, null, 2).substring(0, 300)}...</pre>
-                </div>
-                <div class="result-actions">
-                    <button onclick="viewFile('${result.filename}')" class="btn btn-view">
-                        👁 View
-                    </button>
-                    <button onclick="downloadFile('${result.filename}')" class="btn btn-download">
-                        ⬇ Download
-                    </button>
-                    <button onclick="deleteFile('${result.filename}')" class="btn btn-delete">
-                        🗑️ Delete
-                    </button>
-                </div>
-            `;
-
-            resultsList.insertBefore(resultItem, resultsList.firstChild);
-        }
-
-        function downloadFile(filename) {
-            window.location.href = `/download/${filename}`;
-        }
-
-        function viewFile(filename) {
-            window.open(`/download/${filename}`, '_blank');
+                `).join('');
+            } catch (error) {
+                fileList.innerHTML = `<div class="error-state">Failed to load files: ${error.message}</div>`;
+            }
         }
 
         async function deleteFile(filename) {
-            if (!confirm(`Delete ${filename}?`)) {
-                return;
-            }
+            if (!confirm(`Delete "${filename}"?`)) return;
 
             try {
-                const response = await fetch(`/delete/${filename}`, {
+                const response = await fetch(`/delete/${encodeURIComponent(filename)}`, {
                     method: 'DELETE'
                 });
-
+                
                 const result = await response.json();
-
-                if (response.ok && result.success) {
-                    showStatus(`Deleted: ${filename}`, 'success');
-                    loadExistingFiles(); // Reload the list
+                
+                if (result.success) {
+                    loadFileList();
                 } else {
-                    throw new Error(result.error || 'Delete failed');
+                    alert('Failed to delete file');
                 }
             } catch (error) {
-                showStatus(`Error: ${error.message}`, 'error');
+                alert(`Error: ${error.message}`);
             }
         }
 
-        async function clearAllFiles() {
-            if (!confirm('Delete all parsed files? This cannot be undone.')) {
-                return;
-            }
+        // Clear all button
+        clearAllBtn.addEventListener('click', async () => {
+            if (!confirm('Delete ALL parsed files? This cannot be undone.')) return;
 
             try {
-                const response = await fetch('/clear-all', {
-                    method: 'POST'
-                });
-
+                const response = await fetch('/clear-all', { method: 'POST' });
                 const result = await response.json();
-
-                if (response.ok && result.success) {
-                    showStatus(`Cleared ${result.deleted} file(s)`, 'success');
-                    resultsList.innerHTML = '<p class="empty-state">No files parsed yet. Upload a file to get started.</p>';
-                    document.getElementById('clearAllBtn').style.display = 'none';
-                } else {
-                    throw new Error(result.error || 'Clear failed');
+                
+                if (result.success) {
+                    loadFileList();
+                    showStatus('success', `✓ Deleted ${result.deleted} file(s)`);
                 }
             } catch (error) {
-                showStatus(`Error: ${error.message}`, 'error');
+                alert(`Error: ${error.message}`);
             }
+        });
+
+        // Refresh button
+        refreshBtn.addEventListener('click', loadFileList);
+
+        // =====================================================
+        // Utility Functions
+        // =====================================================
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
-        // Load existing files on page load
-        async function loadExistingFiles() {
-            try {
-                const response = await fetch('/list-outputs');
-                const data = await response.json();
-
-                if (data.files && data.files.length > 0) {
-                    const emptyState = resultsList.querySelector('.empty-state');
-                    if (emptyState) emptyState.remove();
-
-                    // Show clear all button
-                    document.getElementById('clearAllBtn').style.display = 'block';
-
-                    data.files.forEach(file => {
-                        const ext = file.filename.split('.').pop();
-                        const fileTypeIcon = ext === 'json' ? '📊' : '📝';
-
-                        const resultItem = document.createElement('div');
-                        resultItem.className = 'result-item';
-                        resultItem.innerHTML = `
-                            <div class="result-header">
-                                <span class="result-icon">${fileTypeIcon}</span>
-                                <div class="result-info">
-                                    <div class="result-filename">${file.filename}</div>
-                                    <div class="result-meta">
-                                        ${(file.size / 1024).toFixed(1)} KB •
-                                        ${new Date(file.created).toLocaleString()}
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="result-actions">
-                                <button onclick="viewFile('${file.filename}')" class="btn btn-view">
-                                    👁 View
-                                </button>
-                                <button onclick="downloadFile('${file.filename}')" class="btn btn-download">
-                                    ⬇ Download
-                                </button>
-                                <button onclick="deleteFile('${file.filename}')" class="btn btn-delete">
-                                    🗑️ Delete
-                                </button>
-                            </div>
-                        `;
-                        resultsList.appendChild(resultItem);
-                    });
-                }
-            } catch (error) {
-                console.error('Error loading files:', error);
+        function formatDate(isoString) {
+            const date = new Date(isoString);
+            const now = new Date();
+            const diff = now - date;
+            
+            // Less than 1 minute
+            if (diff < 60000) return 'Just now';
+            
+            // Less than 1 hour
+            if (diff < 3600000) {
+                const mins = Math.floor(diff / 60000);
+                return `${mins}m ago`;
             }
+            
+            // Less than 24 hours
+            if (diff < 86400000) {
+                const hours = Math.floor(diff / 3600000);
+                return `${hours}h ago`;
+            }
+            
+            // Otherwise show date
+            return date.toLocaleDateString();
         }
 
-        // Load on page load
-        loadExistingFiles();
+        function getFileIcon(filename) {
+            if (filename.endsWith('.json')) return '📋';
+            if (filename.endsWith('.md')) return '📝';
+            return '📄';
+        }
+
+        // =====================================================
+        // Initialize
+        // =====================================================
+        loadFileList();
     </script>
 </body>
 </html>

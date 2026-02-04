@@ -1,593 +1,530 @@
+#!/usr/bin/env python3
 """
 File Parser Agent - MCP Server
-Model Context Protocol server for document parsing tools.
 
-Run with: python mcp_server.py
-Or configure in Claude Desktop's claude_desktop_config.json
+Model Context Protocol server for Claude Desktop integration.
+Enables Claude to parse documents directly through tool calls.
+
+Usage:
+    python mcp_server.py
+
+Configuration (claude_desktop_config.json):
+    {
+      "mcpServers": {
+        "file-parser": {
+          "command": "python",
+          "args": ["/path/to/file-parser-agent/mcp_server.py"],
+          "env": {
+            "ANTHROPIC_API_KEY": "your-api-key"
+          }
+        }
+      }
+    }
 """
 
 import asyncio
-import base64
 import json
+import base64
 import os
 import sys
-from datetime import datetime
-from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import (
-    Tool,
-    TextContent,
-    EmbeddedResource,
-    BlobResourceContents,
-)
+# Add project root to path
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, PROJECT_ROOT)
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# MCP imports
+try:
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
+    from mcp.types import (
+        Tool,
+        TextContent,
+        ImageContent,
+        EmbeddedResource,
+    )
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
 
-from parsers.pdf_parser import parse_pdf
-from parsers.word_parser import parse_word
-from parsers.excel_parser import parse_excel
-from parsers.pptx_parser import parse_pptx
-from parsers.image_analyzer import get_image_description, analyze_chart_image
-
-# Initialize MCP server
-server = Server("file-parser-agent")
-
-# Configuration
-OUTPUT_DIR = Path("outputs")
-OUTPUT_DIR.mkdir(exist_ok=True)
-TEMP_DIR = Path("temp_uploads")
-TEMP_DIR.mkdir(exist_ok=True)
-
-# File type mappings
-EXTENSION_MAP = {
-    'pdf': 'pdf',
-    'docx': 'word', 'doc': 'word',
-    'xlsx': 'excel', 'xls': 'excel',
-    'pptx': 'powerpoint', 'ppt': 'powerpoint'
-}
-
-PARSER_MAP = {
-    'pdf': parse_pdf,
-    'word': parse_word,
-    'excel': parse_excel,
-    'powerpoint': parse_pptx
-}
+# Local imports
+from core.parser_manager import ParserManager
+from core.output_formatter import OutputFormatter
+from core.file_manager import FileManager
+from core.ai_vision import AIVision
 
 
-def get_file_type(filename: str) -> str | None:
-    """Determine file type from extension."""
-    ext = filename.rsplit('.', 1)[-1].lower()
-    return EXTENSION_MAP.get(ext)
+# Initialize components
+file_manager = FileManager()
+ai_vision = AIVision()
+
+# Create MCP server
+if MCP_AVAILABLE:
+    server = Server("file-parser-agent")
 
 
-def save_temp_file(content_b64: str, filename: str) -> Path:
-    """Save base64 content to temporary file."""
-    filepath = TEMP_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{filename}"
-    file_bytes = base64.b64decode(content_b64)
-    filepath.write_bytes(file_bytes)
-    return filepath
+# =============================================================================
+# Tool Definitions
+# =============================================================================
+
+TOOLS = [
+    {
+        "name": "parse_document",
+        "description": """Parse a document file and extract structured content.
+
+Supports: PDF, Word (DOCX/DOC), Excel (XLSX/XLS), PowerPoint (PPTX/PPT)
+
+Returns structured data including:
+- PDF: Pages with text content, metadata
+- Word: Paragraphs, tables, embedded objects, metadata
+- Excel: All sheets with cell data
+- PowerPoint: Slides with text, shapes, images, charts, notes
+
+Use enable_ai_vision=true for PowerPoint files to get AI descriptions of images.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute path to the file to parse"
+                },
+                "file_content": {
+                    "type": "string",
+                    "description": "Base64-encoded file content (alternative to file_path)"
+                },
+                "filename": {
+                    "type": "string",
+                    "description": "Original filename with extension (required with file_content)"
+                },
+                "output_format": {
+                    "type": "string",
+                    "enum": ["json", "markdown"],
+                    "default": "json",
+                    "description": "Output format"
+                },
+                "enable_ai_vision": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Enable AI image analysis for PowerPoint files"
+                }
+            }
+        }
+    },
+    {
+        "name": "analyze_image",
+        "description": """Analyze an image using Claude Vision API.
+
+Supports: PNG, JPG, JPEG, GIF, WebP
+
+Analysis types:
+- general: General image description
+- chart: Data visualization analysis (identifies trends, axes, values)
+- diagram: Flowchart/architecture diagram analysis
+
+Returns a detailed description of the image content.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "image_path": {
+                    "type": "string",
+                    "description": "Path to image file"
+                },
+                "image_content": {
+                    "type": "string",
+                    "description": "Base64-encoded image data"
+                },
+                "image_format": {
+                    "type": "string",
+                    "enum": ["png", "jpg", "jpeg", "gif", "webp"],
+                    "description": "Image format (required with image_content)"
+                },
+                "analysis_type": {
+                    "type": "string",
+                    "enum": ["general", "chart", "diagram"],
+                    "default": "general",
+                    "description": "Type of analysis to perform"
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Additional context about the image"
+                }
+            }
+        }
+    },
+    {
+        "name": "format_output",
+        "description": """Convert parsed document data between formats.
+
+Takes previously parsed data and converts it to JSON or Markdown format.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "parsed_data": {
+                    "type": "object",
+                    "description": "Previously parsed document data"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["json", "markdown"],
+                    "description": "Target format"
+                },
+                "pretty_print": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Pretty-print JSON output"
+                }
+            },
+            "required": ["parsed_data", "format"]
+        }
+    },
+    {
+        "name": "save_output",
+        "description": """Save content to the outputs directory.
+
+Saves parsed content with a timestamped filename for later retrieval.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Content to save (JSON or Markdown string)"
+                },
+                "original_filename": {
+                    "type": "string",
+                    "description": "Original document filename (used in output name)"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["json", "markdown", "txt"],
+                    "default": "json",
+                    "description": "Output file format"
+                }
+            },
+            "required": ["content", "original_filename"]
+        }
+    },
+    {
+        "name": "list_outputs",
+        "description": """List all saved output files.
+
+Returns a list of previously parsed and saved documents with metadata.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "read_output",
+        "description": """Read a saved output file.
+
+Retrieves the content of a previously saved parsed document.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "Name of the output file to read"
+                }
+            },
+            "required": ["filename"]
+        }
+    },
+    {
+        "name": "delete_output",
+        "description": """Delete a saved output file.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "Name of the file to delete"
+                }
+            },
+            "required": ["filename"]
+        }
+    },
+    {
+        "name": "get_info",
+        "description": """Get information about the File Parser Agent.
+
+Returns version, supported formats, AI Vision status, and other system information.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    }
+]
 
 
-def cleanup_temp_file(filepath: Path):
-    """Remove temporary file."""
+# =============================================================================
+# Tool Handlers
+# =============================================================================
+
+async def handle_parse_document(arguments: dict) -> dict:
+    """Handle parse_document tool call."""
+    file_path = arguments.get('file_path')
+    file_content = arguments.get('file_content')
+    filename = arguments.get('filename')
+    output_format = arguments.get('output_format', 'json')
+    enable_ai_vision = arguments.get('enable_ai_vision', False)
+    
+    temp_path = None
+    
     try:
-        filepath.unlink()
-    except Exception:
-        pass
-
-
-def convert_to_markdown(data: dict, include_toc: bool = False) -> str:
-    """Convert parsed data to Markdown format."""
-    md = []
-
-    md.append(f"# {data.get('filename', 'Parsed Document')}\n")
-    md.append(f"**File Type:** {data.get('file_type', 'Unknown')}")
-    md.append(f"**Parsed:** {data.get('parsed_at', '')}\n")
-    md.append("---\n")
-
-    file_type = data.get('file_type')
-
-    if file_type == 'pdf':
-        if include_toc:
-            md.append("## Table of Contents\n")
-            for page in data.get('pages', []):
-                md.append(f"- [Page {page['page_number']}](#page-{page['page_number']})\n")
-            md.append("\n---\n")
-
-        for page in data.get('pages', []):
-            md.append(f"## Page {page['page_number']}\n")
-            md.append(f"{page.get('text', '')}\n")
-
-    elif file_type == 'word':
-        md.append("## Document Content\n")
-        for para in data.get('paragraphs', []):
-            if isinstance(para, dict):
-                md.append(f"{para.get('text', '')}\n")
-            else:
-                md.append(f"{para}\n")
-
-        if data.get('tables'):
-            md.append("\n## Tables\n")
-            for table in data.get('tables', []):
-                md.append(f"### Table {table.get('table_number', '')}\n")
-                if table.get('data'):
-                    md.append("| " + " | ".join(str(c) for c in table['data'][0]) + " |")
-                    md.append("| " + " | ".join("---" for _ in table['data'][0]) + " |")
-                    for row in table['data'][1:]:
-                        md.append("| " + " | ".join(str(c) for c in row) + " |")
-                md.append("\n")
-
-    elif file_type == 'excel':
-        for sheet in data.get('sheets', []):
-            md.append(f"## Sheet: {sheet['name']}\n")
-            if sheet.get('data'):
-                md.append("| " + " | ".join(str(c) for c in sheet['data'][0]) + " |")
-                md.append("| " + " | ".join("---" for _ in sheet['data'][0]) + " |")
-                for row in sheet['data'][1:]:
-                    md.append("| " + " | ".join(str(c) for c in row) + " |")
-            md.append("\n")
-
-    elif file_type == 'powerpoint':
-        if include_toc:
-            md.append("## Table of Contents\n")
-            for slide in data.get('slides', []):
-                title = slide.get('title', f"Slide {slide['slide_number']}")
-                md.append(f"- [{title}](#slide-{slide['slide_number']})\n")
-            md.append("\n---\n")
-
-        for slide in data.get('slides', []):
-            md.append(f"## Slide {slide['slide_number']}")
-            if slide.get('title'):
-                md.append(f": {slide['title']}")
-            md.append("\n")
-
-            if slide.get('text'):
-                md.append(f"{slide['text']}\n")
-
-            if slide.get('notes'):
-                md.append(f"\n> **Speaker Notes:** {slide['notes']}\n")
-
-            for shape in slide.get('shapes', []):
-                if shape.get('content_type') == 'image' and shape.get('description'):
-                    md.append(f"\n*[Image: {shape['description']}]*\n")
-
-    return '\n'.join(md)
-
-
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    """List available tools."""
-    return [
-        Tool(
-            name="parse_document",
-            description="Parse a document (PDF, Word, Excel, PowerPoint) and extract structured content. Returns JSON with text, tables, metadata, and detected images/charts.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Absolute path to the file to parse"
-                    },
-                    "file_content": {
-                        "type": "string",
-                        "description": "Base64-encoded file content (alternative to file_path)"
-                    },
-                    "filename": {
-                        "type": "string",
-                        "description": "Filename with extension (required if using file_content)"
-                    },
-                    "enable_ai_vision": {
-                        "type": "boolean",
-                        "description": "Enable AI image analysis for PowerPoint (default: true)",
-                        "default": True
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="analyze_image",
-            description="Analyze an image using AI vision. Returns detailed description of image content, charts, or diagrams.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "image_path": {
-                        "type": "string",
-                        "description": "Absolute path to the image file"
-                    },
-                    "image_content": {
-                        "type": "string",
-                        "description": "Base64-encoded image data (alternative to image_path)"
-                    },
-                    "image_format": {
-                        "type": "string",
-                        "enum": ["png", "jpg", "jpeg", "gif", "webp"],
-                        "description": "Image format (required if using image_content)"
-                    },
-                    "analysis_type": {
-                        "type": "string",
-                        "enum": ["general", "chart"],
-                        "description": "Type of analysis: 'general' for images, 'chart' for data visualizations",
-                        "default": "general"
-                    },
-                    "context": {
-                        "type": "string",
-                        "description": "Optional context about the image (e.g., 'Slide 3 of quarterly report')"
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="format_output",
-            description="Format parsed document data as JSON or Markdown.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "parsed_data": {
-                        "type": "object",
-                        "description": "Parsed document data from parse_document"
-                    },
-                    "format": {
-                        "type": "string",
-                        "enum": ["json", "markdown"],
-                        "description": "Output format",
-                        "default": "json"
-                    },
-                    "include_toc": {
-                        "type": "boolean",
-                        "description": "Include table of contents (markdown only)",
-                        "default": False
-                    },
-                    "pretty_print": {
-                        "type": "boolean",
-                        "description": "Pretty print JSON output",
-                        "default": True
-                    }
-                },
-                "required": ["parsed_data"]
-            }
-        ),
-        Tool(
-            name="save_output",
-            description="Save content to a file in the outputs directory.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string",
-                        "description": "Content to save"
-                    },
-                    "filename": {
-                        "type": "string",
-                        "description": "Output filename (without path)"
-                    },
-                    "format": {
-                        "type": "string",
-                        "enum": ["json", "md", "txt", "csv"],
-                        "description": "File format/extension"
-                    }
-                },
-                "required": ["content", "filename", "format"]
-            }
-        ),
-        Tool(
-            name="extract_tables",
-            description="Extract only table data from a document. Returns tables in structured format.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Absolute path to the file"
-                    },
-                    "file_content": {
-                        "type": "string",
-                        "description": "Base64-encoded file content (alternative to file_path)"
-                    },
-                    "filename": {
-                        "type": "string",
-                        "description": "Filename with extension (required if using file_content)"
-                    },
-                    "output_format": {
-                        "type": "string",
-                        "enum": ["json", "csv", "markdown"],
-                        "description": "Output format for tables",
-                        "default": "json"
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="list_outputs",
-            description="List all previously saved output files.",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="read_output",
-            description="Read a previously saved output file.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Name of the output file to read"
-                    }
-                },
-                "required": ["filename"]
-            }
-        ),
-        Tool(
-            name="delete_output",
-            description="Delete a saved output file.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Name of the output file to delete"
-                    }
-                },
-                "required": ["filename"]
-            }
-        )
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    """Handle tool calls."""
-
-    try:
-        if name == "parse_document":
-            return await handle_parse_document(arguments)
-        elif name == "analyze_image":
-            return await handle_analyze_image(arguments)
-        elif name == "format_output":
-            return await handle_format_output(arguments)
-        elif name == "save_output":
-            return await handle_save_output(arguments)
-        elif name == "extract_tables":
-            return await handle_extract_tables(arguments)
-        elif name == "list_outputs":
-            return await handle_list_outputs(arguments)
-        elif name == "read_output":
-            return await handle_read_output(arguments)
-        elif name == "delete_output":
-            return await handle_delete_output(arguments)
+        # Handle base64 content
+        if file_content and filename:
+            try:
+                decoded = base64.b64decode(file_content)
+            except Exception as e:
+                return {'success': False, 'error': f'Invalid base64 content: {str(e)}'}
+            
+            temp_path = os.path.join(file_manager.upload_dir, filename)
+            os.makedirs(file_manager.upload_dir, exist_ok=True)
+            
+            with open(temp_path, 'wb') as f:
+                f.write(decoded)
+            file_path = temp_path
+        
+        if not file_path:
+            return {'success': False, 'error': 'Provide either file_path or (file_content and filename)'}
+        
+        # Validate file
+        valid, message = ParserManager.validate_file(file_path)
+        if not valid:
+            return {'success': False, 'error': message}
+        
+        # Parse
+        data = ParserManager.parse(file_path, enable_ai_vision=enable_ai_vision)
+        
+        # Format output
+        if output_format == 'markdown':
+            formatted = OutputFormatter.to_markdown(data)
         else:
-            return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
+            formatted = OutputFormatter.to_json(data)
+        
+        return {
+            'success': True,
+            'data': data,
+            'formatted': formatted,
+            'format': output_format
+        }
+    
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
-
-
-async def handle_parse_document(args: dict) -> list[TextContent]:
-    """Parse a document file."""
-    file_path = args.get("file_path")
-    file_content = args.get("file_content")
-    filename = args.get("filename")
-    enable_ai_vision = args.get("enable_ai_vision", True)
-
-    # Determine file path
-    if file_path:
-        filepath = Path(file_path)
-        if not filepath.exists():
-            return [TextContent(type="text", text=json.dumps({"error": f"File not found: {file_path}"}))]
-        filename = filepath.name
-    elif file_content and filename:
-        filepath = save_temp_file(file_content, filename)
-    else:
-        return [TextContent(type="text", text=json.dumps({"error": "Provide either file_path or both file_content and filename"}))]
-
-    # Get file type and parser
-    file_type = get_file_type(filename)
-    if not file_type:
-        if file_content:
-            cleanup_temp_file(filepath)
-        return [TextContent(type="text", text=json.dumps({"error": f"Unsupported file type: {filename}"}))]
-
-    parser = PARSER_MAP[file_type]
-
-    try:
-        # Parse file
-        if file_type == 'powerpoint':
-            result = parser(str(filepath), enable_ai_vision=enable_ai_vision)
-        else:
-            result = parser(str(filepath))
-
-        return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+        return {'success': False, 'error': str(e)}
+    
     finally:
-        if file_content:
-            cleanup_temp_file(filepath)
+        # Clean up temp file
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
 
 
-async def handle_analyze_image(args: dict) -> list[TextContent]:
-    """Analyze an image with AI vision."""
-    image_path = args.get("image_path")
-    image_content = args.get("image_content")
-    image_format = args.get("image_format")
-    analysis_type = args.get("analysis_type", "general")
-    context = args.get("context", "")
-
-    # Get image bytes
-    if image_path:
-        filepath = Path(image_path)
-        if not filepath.exists():
-            return [TextContent(type="text", text=json.dumps({"error": f"Image not found: {image_path}"}))]
-        image_bytes = filepath.read_bytes()
-        image_format = filepath.suffix.lstrip('.').lower()
-    elif image_content and image_format:
-        image_bytes = base64.b64decode(image_content)
-    else:
-        return [TextContent(type="text", text=json.dumps({"error": "Provide either image_path or both image_content and image_format"}))]
-
-    # Analyze image
-    if analysis_type == "chart":
-        result = analyze_chart_image(image_bytes, image_format)
-    else:
-        result = get_image_description(image_bytes, image_format, context)
-
-    return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
-
-
-async def handle_format_output(args: dict) -> list[TextContent]:
-    """Format parsed data as JSON or Markdown."""
-    parsed_data = args.get("parsed_data", {})
-    output_format = args.get("format", "json")
-    include_toc = args.get("include_toc", False)
-    pretty_print = args.get("pretty_print", True)
-
-    if output_format == "markdown":
-        content = convert_to_markdown(parsed_data, include_toc)
-        result = {"format": "markdown", "content": content}
-    else:
-        if pretty_print:
-            content = json.dumps(parsed_data, indent=2, ensure_ascii=False)
+async def handle_analyze_image(arguments: dict) -> dict:
+    """Handle analyze_image tool call."""
+    image_path = arguments.get('image_path')
+    image_content = arguments.get('image_content')
+    image_format = arguments.get('image_format', 'png')
+    analysis_type = arguments.get('analysis_type', 'general')
+    context = arguments.get('context', '')
+    
+    try:
+        # Get image data
+        if image_path:
+            if not os.path.exists(image_path):
+                return {'success': False, 'error': f'Image not found: {image_path}'}
+            
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            # Detect format from extension
+            ext = os.path.splitext(image_path)[1].lower().lstrip('.')
+            if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+                image_format = ext
+        
+        elif image_content:
+            try:
+                image_data = base64.b64decode(image_content)
+            except Exception as e:
+                return {'success': False, 'error': f'Invalid base64 image: {str(e)}'}
+        
         else:
-            content = json.dumps(parsed_data, ensure_ascii=False)
-        result = {"format": "json", "content": content}
+            return {'success': False, 'error': 'Provide either image_path or image_content'}
+        
+        # Analyze
+        result = ai_vision.analyze_image(
+            image_data,
+            image_format,
+            analysis_type=analysis_type,
+            context=context
+        )
+        
+        return {'success': True, **result}
+    
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
 
-    result["size_bytes"] = len(content.encode('utf-8'))
-    return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+async def handle_format_output(arguments: dict) -> dict:
+    """Handle format_output tool call."""
+    parsed_data = arguments.get('parsed_data', {})
+    fmt = arguments.get('format', 'json')
+    pretty = arguments.get('pretty_print', True)
+    
+    try:
+        if fmt == 'markdown':
+            content = OutputFormatter.to_markdown(parsed_data)
+        else:
+            content = OutputFormatter.to_json(parsed_data, pretty=pretty)
+        
+        return {'success': True, 'formatted': content, 'format': fmt}
+    
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
 
 
-async def handle_save_output(args: dict) -> list[TextContent]:
-    """Save content to output file."""
-    content = args.get("content", "")
-    filename = args.get("filename", "output")
-    file_format = args.get("format", "txt")
+async def handle_save_output(arguments: dict) -> dict:
+    """Handle save_output tool call."""
+    content = arguments.get('content', '')
+    original_filename = arguments.get('original_filename', 'output')
+    fmt = arguments.get('format', 'json')
+    
+    try:
+        filename = file_manager.save_output(content, original_filename, fmt)
+        return {
+            'success': True,
+            'saved_as': filename,
+            'path': os.path.join(file_manager.output_dir, filename)
+        }
+    
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
 
-    # Sanitize filename
-    safe_filename = "".join(c for c in filename if c.isalnum() or c in "._-")
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_filename = f"{safe_filename}_{timestamp}.{file_format}"
-    output_path = OUTPUT_DIR / output_filename
 
-    output_path.write_text(content, encoding='utf-8')
+async def handle_list_outputs(arguments: dict) -> dict:
+    """Handle list_outputs tool call."""
+    try:
+        outputs = file_manager.list_outputs()
+        return {
+            'success': True,
+            'count': len(outputs),
+            'files': outputs
+        }
+    
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
 
-    result = {
-        "success": True,
-        "filename": output_filename,
-        "path": str(output_path.absolute()),
-        "size_bytes": len(content.encode('utf-8'))
+
+async def handle_read_output(arguments: dict) -> dict:
+    """Handle read_output tool call."""
+    filename = arguments.get('filename', '')
+    
+    try:
+        content = file_manager.read_output(filename)
+        if content:
+            return {'success': True, 'filename': filename, 'content': content}
+        else:
+            return {'success': False, 'error': f'File not found: {filename}'}
+    
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+async def handle_delete_output(arguments: dict) -> dict:
+    """Handle delete_output tool call."""
+    filename = arguments.get('filename', '')
+    
+    try:
+        success = file_manager.delete_output(filename)
+        if success:
+            return {'success': True, 'deleted': filename}
+        else:
+            return {'success': False, 'error': f'File not found: {filename}'}
+    
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+async def handle_get_info(arguments: dict) -> dict:
+    """Handle get_info tool call."""
+    return {
+        'success': True,
+        'name': 'File Parser Agent',
+        'version': '2.1',
+        'supported_extensions': list(sorted(ParserManager.ALLOWED_EXTENSIONS.keys())),
+        'supported_types': ParserManager.get_supported_types(),
+        'output_formats': ['json', 'markdown'],
+        'max_file_size_mb': ParserManager.MAX_FILE_SIZE / (1024 * 1024),
+        'ai_vision': {
+            'available': ai_vision.is_available(),
+            'model': ai_vision.model if ai_vision.is_available() else None
+        },
+        'output_directory': os.path.abspath(file_manager.output_dir)
     }
-    return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
 
-async def handle_extract_tables(args: dict) -> list[TextContent]:
-    """Extract tables from a document."""
-    # First parse the document
-    parse_result = await handle_parse_document(args)
-    parsed_text = parse_result[0].text
-    parsed_data = json.loads(parsed_text)
-
-    if "error" in parsed_data:
-        return parse_result
-
-    tables = []
-    file_type = parsed_data.get('file_type')
-
-    if file_type == 'word':
-        tables = parsed_data.get('tables', [])
-    elif file_type == 'excel':
-        for sheet in parsed_data.get('sheets', []):
-            tables.append({
-                'name': sheet['name'],
-                'rows': sheet.get('rows', 0),
-                'columns': sheet.get('columns', 0),
-                'data': sheet.get('data', [])
-            })
-    elif file_type == 'powerpoint':
-        for slide in parsed_data.get('slides', []):
-            for shape in slide.get('shapes', []):
-                if shape.get('content_type') == 'table':
-                    tables.append({
-                        'slide': slide['slide_number'],
-                        'rows': shape.get('rows'),
-                        'columns': shape.get('columns')
-                    })
-
-    output_format = args.get("output_format", "json")
-
-    if output_format == "csv" and tables:
-        csv_lines = []
-        for table in tables:
-            if 'data' in table:
-                for row in table['data']:
-                    csv_lines.append(','.join(f'"{c}"' for c in row))
-                csv_lines.append('')  # Empty line between tables
-        result = {"format": "csv", "table_count": len(tables), "content": '\n'.join(csv_lines)}
-    elif output_format == "markdown":
-        md_lines = []
-        for i, table in enumerate(tables):
-            md_lines.append(f"### Table {i + 1}: {table.get('name', 'Unnamed')}\n")
-            if 'data' in table and table['data']:
-                md_lines.append("| " + " | ".join(str(c) for c in table['data'][0]) + " |")
-                md_lines.append("| " + " | ".join("---" for _ in table['data'][0]) + " |")
-                for row in table['data'][1:]:
-                    md_lines.append("| " + " | ".join(str(c) for c in row) + " |")
-            md_lines.append("")
-        result = {"format": "markdown", "table_count": len(tables), "content": '\n'.join(md_lines)}
-    else:
-        result = {"format": "json", "table_count": len(tables), "tables": tables}
-
-    return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+# Tool handler dispatch
+TOOL_HANDLERS = {
+    'parse_document': handle_parse_document,
+    'analyze_image': handle_analyze_image,
+    'format_output': handle_format_output,
+    'save_output': handle_save_output,
+    'list_outputs': handle_list_outputs,
+    'read_output': handle_read_output,
+    'delete_output': handle_delete_output,
+    'get_info': handle_get_info,
+}
 
 
-async def handle_list_outputs(args: dict) -> list[TextContent]:
-    """List output files."""
-    files = []
-    for filepath in OUTPUT_DIR.iterdir():
-        if filepath.is_file():
-            stat = filepath.stat()
-            files.append({
-                "filename": filepath.name,
-                "size_bytes": stat.st_size,
-                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
-            })
+# =============================================================================
+# MCP Server Implementation
+# =============================================================================
 
-    files.sort(key=lambda x: x['modified'], reverse=True)
-    result = {"count": len(files), "files": files}
-    return [TextContent(type="text", text=json.dumps(result, indent=2))]
+if MCP_AVAILABLE:
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        """List available tools."""
+        return [
+            Tool(
+                name=tool['name'],
+                description=tool['description'],
+                inputSchema=tool['inputSchema']
+            )
+            for tool in TOOLS
+        ]
+    
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        """Handle tool calls."""
+        handler = TOOL_HANDLERS.get(name)
+        
+        if handler:
+            result = await handler(arguments)
+        else:
+            result = {'success': False, 'error': f'Unknown tool: {name}'}
+        
+        # Return result as JSON text
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(result, indent=2, default=str, ensure_ascii=False)
+            )
+        ]
 
 
-async def handle_read_output(args: dict) -> list[TextContent]:
-    """Read an output file."""
-    filename = args.get("filename", "")
-    filepath = OUTPUT_DIR / filename
-
-    if not filepath.exists():
-        return [TextContent(type="text", text=json.dumps({"error": f"File not found: {filename}"}))]
-
-    content = filepath.read_text(encoding='utf-8')
-    result = {
-        "filename": filename,
-        "size_bytes": len(content.encode('utf-8')),
-        "content": content
-    }
-    return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-
-async def handle_delete_output(args: dict) -> list[TextContent]:
-    """Delete an output file."""
-    filename = args.get("filename", "")
-    filepath = OUTPUT_DIR / filename
-
-    if not filepath.exists():
-        return [TextContent(type="text", text=json.dumps({"error": f"File not found: {filename}"}))]
-
-    filepath.unlink()
-    result = {"success": True, "deleted": filename}
-    return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
+# =============================================================================
+# Main Entry Point
+# =============================================================================
 
 async def main():
     """Run the MCP server."""
+    if not MCP_AVAILABLE:
+        print("Error: MCP library not installed.", file=sys.stderr)
+        print("Install with: pip install mcp", file=sys.stderr)
+        sys.exit(1)
+    
+    # Run server with stdio transport
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
@@ -596,6 +533,10 @@ async def main():
         )
 
 
-if __name__ == "__main__":
-    print("Starting File Parser Agent MCP Server...", file=sys.stderr)
+def run_server():
+    """Entry point for running the server."""
     asyncio.run(main())
+
+
+if __name__ == '__main__':
+    run_server()
